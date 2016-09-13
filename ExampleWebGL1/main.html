@@ -1,32 +1,56 @@
+<script type="text/javascript" src="../JSlib/glMatrix-0.9.5.min.js"></script>
 <html>
-<body>
+<body onload="animate(0);">
 <canvas width = "600" height = "600" id = "my_Canvas"></canvas>
 
 <script id="shader-fs" type="x-shader/x-fragment">
     precision mediump float;
 
     varying vec2 vTextureCoord;
+    varying vec3 vLightWeighting;
+
     uniform sampler2D uSampler;
 
     void main(void) {
-        gl_FragColor = texture2D(uSampler, vec2(vTextureCoord.s, vTextureCoord.t));
+        vec4 textureColor = texture2D(uSampler, vec2(vTextureCoord.s, vTextureCoord.t));
+        gl_FragColor = vec4(textureColor.rgb * vLightWeighting, textureColor.a);
     }
 </script>
 
 <script id="shader-vs" type="x-shader/x-vertex">
     attribute vec3 coordinates;
+    attribute vec3 aVertexNormal;
+    attribute vec2 aTextureCoord;
+
 
     uniform mat4 u_xformMatrix;
     uniform mat4 Pmatrix;
     uniform mat4 Vmatrix;
     uniform mat4 Mmatrix;
 
-    attribute vec2 aTextureCoord;
+    uniform mat3 uNMatrix;
+
+    uniform vec3 uAmbientColor;
+
+    uniform vec3 uLightingDirection;
+    uniform vec3 uDirectionalColor;
+
+    uniform bool uUseLighting;
+
     varying vec2 vTextureCoord;
+    varying vec3 vLightWeighting;
 
     void main(void) {
         gl_Position = Pmatrix*Vmatrix*Mmatrix*(vec4(coordinates, 1.0))*u_xformMatrix;
         vTextureCoord = aTextureCoord;
+
+        if (!uUseLighting) {
+            vLightWeighting = vec3(1.0, 1.0, 1.0);
+        } else {
+            vec3 transformedNormal = uNMatrix * aVertexNormal;
+            float directionalLightWeighting = max(dot(transformedNormal, uLightingDirection), 0.0);
+            vLightWeighting = uAmbientColor + uDirectionalColor * directionalLightWeighting;
+        }
     }
 </script>
 
@@ -102,14 +126,26 @@
         shaderProgram.Mmatrix = gl.getUniformLocation(shaderProgram, "Mmatrix");
 
         shaderProgram.samplerUniform = gl.getUniformLocation(shaderProgram, "uSampler");
+
+
+        shaderProgram.vertexNormalAttribute = gl.getAttribLocation(shaderProgram, "aVertexNormal");
+        gl.enableVertexAttribArray(shaderProgram.vertexNormalAttribute);
+
+        shaderProgram.nMatrixUniform = gl.getUniformLocation(shaderProgram, "uNMatrix");
+
+        shaderProgram.useLightingUniform = gl.getUniformLocation(shaderProgram, "uUseLighting");
+        shaderProgram.ambientColorUniform = gl.getUniformLocation(shaderProgram, "uAmbientColor");
+        shaderProgram.lightingDirectionUniform = gl.getUniformLocation(shaderProgram, "uLightingDirection");
+        shaderProgram.directionalColorUniform = gl.getUniformLocation(shaderProgram, "uDirectionalColor");
     }
 
     function handleLoadedTexture(texture) {
         gl.bindTexture(gl.TEXTURE_2D, texture);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texture.image);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+        gl.generateMipmap(gl.TEXTURE_2D);
         gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
@@ -125,6 +161,7 @@
 
     var indices;
     var cubeVertexTextureCoordBuffer;
+    var cubeVertexNormalBuffer;
     function initBuffers() {
         vertices = [
             // Front face
@@ -200,6 +237,39 @@
             1.0, 1.0,
             0.0, 1.0,
         ];
+
+        var vertexNormals = [
+            // Front face
+            0.0,  0.0,  1.0,
+            0.0,  0.0,  1.0,
+            0.0,  0.0,  1.0,
+            0.0,  0.0,  1.0,
+            // Back face
+            0.0,  0.0, -1.0,
+            0.0,  0.0, -1.0,
+            0.0,  0.0, -1.0,
+            0.0,  0.0, -1.0,
+            // Top face
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            0.0,  1.0,  0.0,
+            // Bottom face
+            0.0, -1.0,  0.0,
+            0.0, -1.0,  0.0,
+            0.0, -1.0,  0.0,
+            0.0, -1.0,  0.0,
+            // Right face
+            1.0,  0.0,  0.0,
+            1.0,  0.0,  0.0,
+            1.0,  0.0,  0.0,
+            1.0,  0.0,  0.0,
+            // Left face
+            -1.0,  0.0,  0.0,
+            -1.0,  0.0,  0.0,
+            -1.0,  0.0,  0.0,
+            -1.0,  0.0,  0.0
+        ];
         //gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(textureCoords), gl.STATIC_DRAW);
 
         // Create a new buffer object
@@ -207,6 +277,13 @@
         gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+
+        cubeVertexNormalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexNormals), gl.STATIC_DRAW);
+        cubeVertexNormalBuffer.itemSize = 3;
+        cubeVertexNormalBuffer.numItems = 24;
 
 
         // Create an empty buffer object to store Index buffer
@@ -306,10 +383,15 @@
         e.preventDefault();
     };
 
+    var mouseWheel = function(e){
+
+    };
+
     canvas.addEventListener("mousedown", mouseDown, false);
     canvas.addEventListener("mouseup", mouseUp, false);
     canvas.addEventListener("mouseout", mouseUp, false);
     canvas.addEventListener("mousemove", mouseMove, false);
+    canvas.addEventListener("mousewheel", mouseWheel, false);
 
     /*=======================rotation========================*/
     function rotateZ(m, angle) {
@@ -393,16 +475,54 @@
         gl.enable(gl.DEPTH_TEST);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexNormalBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, cubeVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
         gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexTextureCoordBuffer);
         gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, cubeVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+
 
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, neheTexture);
         gl.uniform1i(shaderProgram.samplerUniform, 0);
 
+        var lighting = document.getElementById("lighting").checked;
+        gl.uniform1i(shaderProgram.useLightingUniform, lighting);
+        if (lighting) {
+            gl.uniform3f(
+                    shaderProgram.ambientColorUniform,
+                    parseFloat(document.getElementById("ambientR").value),
+                    parseFloat(document.getElementById("ambientG").value),
+                    parseFloat(document.getElementById("ambientB").value)
+            );
+            var lightingDirection = [
+                parseFloat(document.getElementById("lightDirectionX").value),
+                parseFloat(document.getElementById("lightDirectionY").value),
+                parseFloat(document.getElementById("lightDirectionZ").value)
+            ];
+            var adjustedLD = vec3.create();
+            vec3.normalize(lightingDirection, adjustedLD);
+            vec3.scale(adjustedLD, -1);
+            gl.uniform3fv(shaderProgram.lightingDirectionUniform, adjustedLD);
+            gl.uniform3f(
+                    shaderProgram.directionalColorUniform,
+                    parseFloat(document.getElementById("directionalR").value),
+                    parseFloat(document.getElementById("directionalG").value),
+                    parseFloat(document.getElementById("directionalB").value)
+            );
+        }
+
+
         gl.uniformMatrix4fv(shaderProgram.Pmatrix, false, proj_matrix);
         gl.uniformMatrix4fv(shaderProgram.Vmatrix, false, view_matrix);
         gl.uniformMatrix4fv(shaderProgram.Mmatrix, false, mov_matrix);
+
+        var normalMatrix = mat3.create();
+        mat4.toInverseMat3(mov_matrix, normalMatrix);
+        mat3.transpose(normalMatrix);
+        gl.uniformMatrix3fv(shaderProgram.nMatrixUniform, false, normalMatrix);
 
 
         gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT,0);
@@ -411,9 +531,40 @@
         alfa = alfa + Math.PI / 100;
         window.requestAnimationFrame(animate);
     };
-    animate(0);
+    //animate(0);
 </script>
 
+
+<input type="checkbox" id="lighting" checked /> Use lighting<br/>
+(Use cursor keys to spin the box and <code>Page Up</code>/<code>Page Down</code> to zoom out/in)
+
+<br/>
+<h2>Directional light:</h2>
+
+<table style="border: 0; padding: 10px;">
+    <tr>
+        <td><b>Direction:</b>
+        <td>X: <input type="text" id="lightDirectionX" value="-0.25" />
+        <td>Y: <input type="text" id="lightDirectionY" value="-0.25" />
+        <td>Z: <input type="text" id="lightDirectionZ" value="-1.0" />
+    </tr>
+    <tr>
+        <td><b>Colour:</b>
+        <td>R: <input type="text" id="directionalR" value="0.8" />
+        <td>G: <input type="text" id="directionalG" value="0.8" />
+        <td>B: <input type="text" id="directionalB" value="0.8" />
+    </tr>
+</table>
+
+<h2>Ambient light:</h2>
+<table style="border: 0; padding: 10px;">
+    <tr>
+        <td><b>Colour:</b>
+        <td>R: <input type="text" id="ambientR" value="0.2" />
+        <td>G: <input type="text" id="ambientG" value="0.2" />
+        <td>B: <input type="text" id="ambientB" value="0.2" />
+    </tr>
+</table>
 
 
 </body>
