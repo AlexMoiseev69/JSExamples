@@ -27,7 +27,7 @@
 		var geometry = new THREE.SphereGeometry( 60, 24, 16 );
         var loader = new THREE.TextureLoader();
         var texture = loader.load("times.jpg");
-		var material = new THREE.MeshPhongMaterial({map: texture});
+		var material = new THREE.MeshBasicMaterial({map: texture});
         var cube = new THREE.Mesh( geometry, material );
         cube.castShadow = true;
         cube.receiveShadow = false;
